@@ -5,6 +5,7 @@ date: "July 20th 2018"
 output: html_document
 ---
 
+Output generated on RStudio Version 1.1.383 running on a Windows 10 Home
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```

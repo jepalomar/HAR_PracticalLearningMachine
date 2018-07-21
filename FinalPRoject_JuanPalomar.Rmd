@@ -1,0 +1,124 @@
+---
+title: "Practical Machine Learning : HAR"
+author: "Juan E. Palomar"
+date: "July 20th 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+In this project we will train a model to predict whether the exercise was well performed or not, based on the collected personal activity information. The level of performance has been classified into four classes:
+
+  * Class A: correct execution
+  * Class B: throwing the elbows to the front
+  * Class C: lifting the dumbbell only halfway
+  * Class D: lowering the dumbbell only halfway
+  * Class E: throwing the hips to the front (Class E)
+  
+
+## Collecting and cleaning data
+
+We first read the data. We find in some columns #DIV/0! values. We will treat them as NA. Otherwise the corresponding column is interpreted as a string, which is not what we want.
+
+```{r data, echo=T, results='hide'}
+library(caret);library(ggplot2);library(e1071)
+setwd("C:\\Users\\jepal\\Documents\\Joan\\Coursera\\JohnHopkins_DataScience\\PracticalMachineLearning\\CourseProject")
+training = read.csv("pml-training.csv", na.strings=c('#DIV/0!', '', 'NA','NaN') ,stringsAsFactors = F)
+testing = read.csv("pml-testing.csv", na.strings=c('#DIV/0!', '', 'NA','NaN') ,stringsAsFactors = F)
+```
+
+Some variables are irrelevant, such as user_name or timestamps. We will remove them. We will alse treat classe variable as a factor.
+
+```{r data2}
+training<-training[,-c(1:7)]
+# we treat classe as a factor
+training$classe<-as.factor(training$classe)
+```
+
+A inspection of the data shows that there are a lot of NA values in some columns. Columns with more than 75% of NAs will not be considered. We now remove those columns. After removing those columns, we remove rows with NA values. After this cleaning process we get a data frame of 19622 observations of 53 variables, while the starting data frame had 19622 observations of 153 variables. 
+
+```{r removeNAs}
+# identify columns with small number of NA
+goodCols<-colnames(training)[colSums(is.na(training))/length(training$roll_belt)<0.75]
+myTrain<-training[,names(training) %in% goodCols]
+# now we only keep the rows with no na in them
+myTrain<-na.omit(myTrain) # it doesn't change the size
+myTrain$classe<-as.factor(myTrain$classe)
+```
+Now we will remove the same columns in the testing data, since they will not be predictors of our model.
+```{r cleantest}
+testing<-testing[,-c(1:7)]
+myTest<-testing[,names(testing) %in% goodCols]
+```
+
+
+## Finding a prediction model
+
+Now that we have cleaned our data, we will create a training and a testing set starting from the training data. We do so because the test set from the website contains only 20 observations, while the training has thousands. A good proportion is 60% data for training and 40% data for testing. We will obtain a new training set and a new testing set from the original training data, to train and check our model. Finally, we will use our model to predict the performance class for the original testing set.
+
+Let's define our new training and testing sets:
+
+```{r createSets}
+inTrain<-createDataPartition(y=myTrain$classe,p=0.6,list=FALSE)
+newTrain<-myTrain[inTrain,]
+newTest<-myTrain[-inTrain,]
+```
+
+Now is time to choose a model. Since the number of predictors is rather high (53), we will preprocess the data by doing a principal component analysis. We will also remove predictors with zero variance (if any), since they do not have impact in the performance (they are constant for all measurements). To do these two things, we will use preprocess=c("pca","zv") when training the data.
+
+Our algorithm to choose a model will be:
+
+  * Train several models and check their accuracy
+  * If a model presents a high accuracy both in training and testing sets, choose it
+  * If there are several models with a good performance, use their predictions as new predictors for     a new model (as in the "Combining Predictors" lecture)
+  * Keep the model with highest accuracy from all the previous models
+
+First, we will use a gradient boosting method:
+
+```{r fitGBM, echo=T, results='hide'}
+modGBM<-train(classe~.,method="gbm",data=newTrain,verbose=FALSE,preProcess = c("zv","pca"))
+gbm<-predict(modGBM,newdata=newTrain)
+```
+```{r cmgbm}
+cm<-confusionMatrix(gbm,newTrain$classe)
+cm$overall
+cm$table
+```
+
+The accuracy is 86%. Now we will train a random forest method.
+```{r fitRF, echo=T, results='hide'}
+modRF<-train(classe~.,data=newTrain,method="rf",preProcess = c("zv","pca"))
+rf<-predict(modRF,newdata=newTrain)
+```
+```{r cmrf}
+rf<-as.factor(rf)
+cm<-confusionMatrix(rf,newTrain$classe)
+cm$overall
+cm$table
+```
+
+Random forest presents an accuracy of 100%. We will select it as our candidate model. We still need to check that accuracy is high in the testing set.
+
+```{r test}
+rf<-predict(modRF,newdata=newTest)
+cmt<-confusionMatrix(rf,newTest$classe)
+cmt$overall
+cmt$table
+```
+
+The accuracy is high also for the testing set (97.6%). We will choose random forest as our prediction model.
+
+## Predicting preformances for original testing set
+
+Now that we have a model, we will use to predict performance for the 20 observation in the testing set. 
+
+```{r predict}
+classe<-predict(modRF,newdata=testing)
+data.frame(testing$problem_id,classe)
+```
